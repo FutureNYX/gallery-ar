@@ -7,6 +7,7 @@
   <style>
     * { margin:0; padding:0; box-sizing:border-box; }
     html, body { width:100%; height:100%; overflow:hidden; background:#000; font-family:-apple-system,sans-serif; }
+
     #overlay {
       position:fixed; inset:0; z-index:200;
       display:flex; flex-direction:column; align-items:center; justify-content:center;
@@ -15,13 +16,20 @@
     #overlay .icon { font-size:52px; margin-bottom:18px; }
     #overlay h1   { font-size:22px; font-weight:500; margin-bottom:10px; }
     #overlay p    { font-size:14px; color:rgba(255,255,255,0.65); line-height:1.65; margin-bottom:28px; max-width:270px; }
-    #start-btn { background:#fff; color:#000; border:none; padding:14px 36px; border-radius:100px; font-size:16px; font-weight:500; cursor:pointer; }
+    #start-btn {
+      background:#fff; color:#000; border:none;
+      padding:14px 36px; border-radius:100px;
+      font-size:16px; font-weight:500; cursor:pointer;
+      opacity:1;
+    }
+
     #hud { position:fixed; bottom:44px; left:0; right:0; z-index:100; text-align:center; pointer-events:none; display:none; }
     #hud-text { display:inline-block; background:rgba(0,0,0,0.65); border:1px solid rgba(255,255,255,0.2); border-radius:100px; padding:11px 22px; color:#fff; font-size:14px; }
     #actions { position:fixed; bottom:44px; left:0; right:0; z-index:100; text-align:center; display:none; }
     #actions button { background:rgba(0,0,0,0.65); border:1px solid rgba(255,255,255,0.25); border-radius:100px; padding:11px 22px; color:#fff; font-size:14px; cursor:pointer; margin:0 5px; }
     #info-bar { position:fixed; top:18px; left:0; right:0; z-index:100; text-align:center; pointer-events:none; display:none; }
     #info-bar span { display:inline-block; background:rgba(0,0,0,0.65); border:1px solid rgba(255,255,255,0.2); border-radius:100px; padding:8px 18px; color:#fff; font-size:13px; }
+
     #debug { position:fixed; top:60px; left:10px; right:10px; z-index:300; font-size:11px; color:#0f0; pointer-events:none; font-family:monospace; text-shadow:0 0 3px #000; white-space:pre-wrap; line-height:1.6; }
     #version { position:fixed; top:18px; right:14px; z-index:300; font-size:11px; color:rgba(255,255,255,0.5); pointer-events:none; font-family:monospace; }
     #tap-surface { position:fixed; inset:0; z-index:50; display:none; }
@@ -29,8 +37,13 @@
     #reticle::before, #reticle::after { content:''; position:absolute; background:rgba(255,255,255,0.85); top:50%; left:50%; }
     #reticle::before { width:2px; height:26px; transform:translate(-50%,-50%); }
     #reticle::after  { width:26px; height:2px; transform:translate(-50%,-50%); }
+
+    /* Camera feed canvas - sits behind everything */
+    #cam-canvas { position:fixed; inset:0; z-index:0; width:100%; height:100%; object-fit:cover; }
+
     a-scene { position:fixed; inset:0; }
   </style>
+
   <script src="https://cdn.8thwall.com/web/aframe/8frame-1.3.0.min.js"></script>
   <script src="https://cdn.8thwall.com/web/xrextras/xrextras.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@8thwall/engine-binary@1/dist/xr.js"
@@ -38,46 +51,47 @@
 </head>
 <body>
 
-  <div id="version">v9</div>
+  <div id="version">v10</div>
+  <div id="debug">v10 loading...</div>
+  <div id="reticle"></div>
+  <div id="tap-surface"></div>
 
+  <!-- Overlay shown first - button works immediately, no waiting for XR -->
   <div id="overlay">
-    <div class="icon">&#128444;</div>
+    <div class="icon">&#128444;&#65039;</div>
     <h1>View in your room</h1>
     <p>Stand 1-2 metres from a wall. Point your phone toward the wall and tap to place the painting.</p>
     <button id="start-btn">Start AR</button>
   </div>
 
-  <div id="hud"><span id="hud-text">Stand near a wall and tap to place</span></div>
+  <div id="hud"><span id="hud-text">Point phone at wall and tap</span></div>
   <div id="actions">
     <button id="btn-move">Move it</button>
     <button id="btn-info">Size info</button>
   </div>
   <div id="info-bar"><span id="info-text"></span></div>
-  <div id="debug">Starting...</div>
-  <div id="reticle"></div>
-  <div id="tap-surface"></div>
 
   <a-scene
     xrconfig
     xrweb="disableWorldTracking: false; allowedDevices: any"
     xrextras-loading
     xrextras-runtime-error
-    renderer="colorManagement: true; physicallyCorrectLights: true; antialias: true"
+    renderer="colorManagement: true; physicallyCorrectLights: true"
     vr-mode-ui="enabled: false"
     device-orientation-permission-ui="enabled: false"
   >
     <a-camera id="camera" position="0 1.4 0"></a-camera>
 
     <a-entity id="painting-root" visible="false">
-      <!-- No src on material yet - texture applied via JS to bypass assets system -->
+      <!-- Gold fallback colour until texture loads -->
       <a-plane id="painting-plane" width="0.77" height="1.0"
-        material="color:#e8c87a; shader:standard; roughness:0.88; metalness:0.02; side:double"
+        material="color:#d4a84b; shader:standard; roughness:0.88; metalness:0.02; side:double"
         position="0 0 0.003"></a-plane>
       <a-plane id="painting-frame" width="0.83" height="1.06"
-        material="color:#1c1c1c; roughness:0.85; metalness:0.15; side:double"
+        material="color:#1c1c1c; roughness:0.9; side:double"
         position="0 0 0"></a-plane>
       <a-plane id="wall-shadow" width="0.97" height="1.22"
-        material="color:#000; opacity:0.13; transparent:true; side:double"
+        material="color:#000; opacity:0.12; transparent:true; side:double"
         position="0 0 -0.006"></a-plane>
     </a-entity>
 
@@ -86,163 +100,176 @@
   </a-scene>
 
 <script>
-  const VERSION = 'v9'
-
-  // ── Params ────────────────────────────────────────────────────────────────
-  const p     = new URLSearchParams(location.search)
-  const wCm   = parseFloat(p.get('w'))  || 77
-  const hCm   = parseFloat(p.get('h'))  || 100
-  const title = p.get('title')          || 'Painting'
-  const imgParam = p.get('img')         || '/test-painting.png'
-  const wM = wCm / 100
-  const hM = hCm / 100
+  const VERSION = 'v10'
+  const p       = new URLSearchParams(location.search)
+  const wCm     = parseFloat(p.get('w'))  || 77
+  const hCm     = parseFloat(p.get('h'))  || 100
+  const title   = p.get('title')          || 'Painting'
+  const imgSrc  = p.get('img')            || '/test-painting.png'
+  const wM      = wCm / 100
+  const hM      = hCm / 100
 
   // ── Debug ─────────────────────────────────────────────────────────────────
-  const dbg = document.getElementById('debug')
+  const dbg  = document.getElementById('debug')
   const logs = []
   function log(msg) {
-    logs.unshift('[' + VERSION + '] ' + msg)
-    if (logs.length > 6) logs.pop()
+    logs.unshift(VERSION + ' ' + msg)
+    if (logs.length > 7) logs.pop()
     dbg.textContent = logs.join('
 ')
     console.log('[AR]', msg)
   }
 
   // ── State ─────────────────────────────────────────────────────────────────
-  let arStarted   = false
-  let tapCount    = 0
-  let texLoaded   = false
+  let arStarted = false
+  let tapCount  = 0
+  let threeReady = false
+  let texture   = null
 
-  // ── Set dimensions on planes ──────────────────────────────────────────────
+  // ── Set dimensions ────────────────────────────────────────────────────────
   document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('info-text').textContent = title + '  ·  ' + wCm + ' x ' + hCm + ' cm'
-    document.getElementById('painting-plane').setAttribute('width',  wM)
-    document.getElementById('painting-plane').setAttribute('height', hM)
-    document.getElementById('painting-frame').setAttribute('width',  wM + 0.06)
-    document.getElementById('painting-frame').setAttribute('height', hM + 0.06)
-    document.getElementById('wall-shadow').setAttribute('width',     wM + 0.20)
-    document.getElementById('wall-shadow').setAttribute('height',    hM + 0.22)
+    const setAttr = (id, w, h) => {
+      document.getElementById(id).setAttribute('width', w)
+      document.getElementById(id).setAttribute('height', h)
+    }
+    setAttr('painting-plane', wM,        hM)
+    setAttr('painting-frame', wM + 0.06, hM + 0.06)
+    setAttr('wall-shadow',    wM + 0.20, hM + 0.22)
+    log('DOM ready')
   })
 
-  // ── Load texture via Three.js directly (bypasses A-Frame assets) ──────────
-  function loadTexture() {
-    log('Loading texture: ' + imgParam)
-    const loader = new THREE.TextureLoader()
-    loader.crossOrigin = 'anonymous'
-    loader.load(
-      imgParam,
-      (tex) => {
-        texLoaded = true
-        tex.encoding = THREE.sRGBEncoding
-        tex.wrapS = THREE.ClampToEdgeWrapping
-        tex.wrapT = THREE.ClampToEdgeWrapping
-        tex.needsUpdate = true
-
-        // Apply directly to the Three.js mesh material
-        const plane = document.getElementById('painting-plane')
-        const mesh  = plane.getObject3D('mesh')
-        if (mesh && mesh.material) {
-          mesh.material.map = tex
-          mesh.material.color.set(0xffffff)  // reset colour tint to white
-          mesh.material.needsUpdate = true
-          log('Texture applied to mesh OK')
-        } else {
-          // Mesh not ready yet - retry in 500ms
-          log('Mesh not ready, retrying...')
-          setTimeout(() => {
-            const m = document.getElementById('painting-plane').getObject3D('mesh')
-            if (m && m.material) {
-              m.material.map = tex
-              m.material.color.set(0xffffff)
-              m.material.needsUpdate = true
-              log('Texture applied on retry OK')
-            } else {
-              log('ERROR: mesh still not ready')
-            }
-          }, 500)
-        }
-      },
-      undefined,
-      (err) => {
-        log('Texture load ERROR - showing gold colour')
-        // Gold colour fallback is already set on the plane material
-      }
-    )
-  }
-
-  // ── Wait for scene + XR to be ready ──────────────────────────────────────
-  window.addEventListener('xrloaded', () => log('XR engine ready'))
-
-  document.querySelector('a-scene').addEventListener('loaded', () => {
-    log('Scene ready - loading texture...')
-    loadTexture()
+  // ── XR events ─────────────────────────────────────────────────────────────
+  window.addEventListener('xrloaded',  () => log('XR engine ready'))
+  window.addEventListener('xrupdated', () => {
+    if (!threeReady) { threeReady = true; log('XR tracking active') }
   })
 
-  // ── Start ─────────────────────────────────────────────────────────────────
+  const scene = document.querySelector('a-scene')
+  scene.addEventListener('loaded', () => {
+    log('Scene loaded - applying texture')
+    applyTexture()
+  })
+
+  // ── START BUTTON - works immediately, no waiting ──────────────────────────
+  // The XR engine starts when the page loads regardless.
+  // The overlay is just instructional - hiding it reveals the AR view.
   document.getElementById('start-btn').addEventListener('click', () => {
+    log('Start tapped')
     document.getElementById('overlay').style.display     = 'none'
     document.getElementById('hud').style.display         = 'block'
     document.getElementById('tap-surface').style.display = 'block'
     document.getElementById('reticle').style.display     = 'block'
     arStarted = true
-    log('AR started - tap to place')
+
+    // If texture not applied yet, try again now
+    if (!texture) applyTexture()
   })
+
+  // ── Texture loading ───────────────────────────────────────────────────────
+  function applyTexture() {
+    if (texture) { assignTexture(texture); return }
+
+    const loader = new THREE.TextureLoader()
+    loader.crossOrigin = 'anonymous'
+
+    log('Loading ' + imgSrc)
+    loader.load(
+      imgSrc,
+      (tex) => {
+        tex.encoding     = THREE.sRGBEncoding
+        tex.needsUpdate  = true
+        texture = tex
+        log('Texture loaded OK')
+        assignTexture(tex)
+      },
+      undefined,
+      (err) => {
+        log('Texture FAILED - gold fallback showing')
+      }
+    )
+  }
+
+  function assignTexture(tex) {
+    const plane = document.getElementById('painting-plane')
+    if (!plane) { log('No plane element'); return }
+
+    const tryAssign = () => {
+      const mesh = plane.getObject3D('mesh')
+      if (mesh && mesh.material) {
+        mesh.material.map = tex
+        mesh.material.color.setHex(0xffffff)
+        mesh.material.needsUpdate = true
+        log('Texture on mesh OK')
+        return true
+      }
+      return false
+    }
+
+    if (!tryAssign()) {
+      // Retry every 300ms for up to 3 seconds
+      let attempts = 0
+      const interval = setInterval(() => {
+        attempts++
+        if (tryAssign() || attempts > 10) clearInterval(interval)
+        else log('Waiting for mesh... attempt ' + attempts)
+      }, 300)
+    }
+  }
 
   // ── Placement ─────────────────────────────────────────────────────────────
   const DIST = 1.6
 
   function getPlacement() {
     const camEl = document.getElementById('camera')
-    if (!camEl || !camEl.object3D) return null
-    const cam = camEl.object3D
-    const pos = new THREE.Vector3()
-    cam.getWorldPosition(pos)
+    if (!camEl || !camEl.object3D) { log('No camera object'); return null }
+
+    const cam    = camEl.object3D
+    const pos    = new THREE.Vector3()
     const rawDir = new THREE.Vector3()
+    cam.getWorldPosition(pos)
     cam.getWorldDirection(rawDir)
+
+    log('raw dir: ' + rawDir.x.toFixed(2) + ',' + rawDir.y.toFixed(2) + ',' + rawDir.z.toFixed(2))
+
     const dir = new THREE.Vector3(rawDir.x, 0, rawDir.z)
-    if (dir.length() < 0.1) { log('Point phone at wall'); return null }
+    if (dir.length() < 0.05) { log('Phone too vertical'); return null }
     dir.normalize()
-    const camH = (pos.y > 0.2 && pos.y < 3.5) ? pos.y : 1.4
-    const pt = new THREE.Vector3(
-      pos.x + dir.x * DIST,
-      camH,
-      pos.z + dir.z * DIST
-    )
-    const facingDir = dir.clone().negate()
-    const yRot = Math.atan2(facingDir.x, facingDir.z) * (180 / Math.PI)
-    return { pt, yRot, camH, dirStr: dir.x.toFixed(2) + ',' + dir.z.toFixed(2) }
+
+    const camH = (pos.y > 0.1 && pos.y < 4.0) ? pos.y : 1.4
+    const pt   = new THREE.Vector3(pos.x + dir.x * DIST, camH, pos.z + dir.z * DIST)
+    const yRot = Math.atan2(-dir.x, -dir.z) * (180 / Math.PI)
+
+    return { pt, yRot, camH, dir }
   }
 
-  function hangPainting(result) {
-    const { pt, yRot } = result
+  function hangPainting(r) {
     const root = document.getElementById('painting-root')
-    root.setAttribute('position', pt.x.toFixed(3) + ' ' + pt.y.toFixed(3) + ' ' + pt.z.toFixed(3))
-    root.setAttribute('rotation', '0 ' + yRot.toFixed(1) + ' 0')
+    root.setAttribute('position', r.pt.x.toFixed(3) + ' ' + r.pt.y.toFixed(3) + ' ' + r.pt.z.toFixed(3))
+    root.setAttribute('rotation', '0 ' + r.yRot.toFixed(1) + ' 0')
     root.setAttribute('visible', 'true')
-
-    // Re-apply texture in case mesh was recreated
-    if (texLoaded) {
-      const plane = document.getElementById('painting-plane')
-      const mesh  = plane.getObject3D('mesh')
-      if (mesh && mesh.material && !mesh.material.map) {
-        loadTexture()
-        log('Re-applying texture after placement')
-      }
-    }
-
     document.getElementById('hud').style.display      = 'none'
     document.getElementById('actions').style.display  = 'block'
     document.getElementById('info-bar').style.display = 'block'
-    log('Placed ' + pt.x.toFixed(2) + ',' + pt.y.toFixed(2) + ',' + pt.z.toFixed(2) + ' rot=' + yRot.toFixed(0))
+    log('Placed rot=' + r.yRot.toFixed(0) + ' pos=' + r.pt.x.toFixed(1) + ',' + r.pt.z.toFixed(1))
+
+    // Re-check texture
+    const mesh = document.getElementById('painting-plane').getObject3D('mesh')
+    if (mesh && mesh.material && !mesh.material.map && texture) {
+      mesh.material.map = texture
+      mesh.material.color.setHex(0xffffff)
+      mesh.material.needsUpdate = true
+      log('Texture re-applied at placement')
+    }
   }
 
   function handleTap() {
     tapCount++
+    log('Tap #' + tapCount + ' arStarted=' + arStarted)
     if (!arStarted) return
-    const result = getPlacement()
-    if (!result) { log('No placement tap#' + tapCount); return }
-    log('Tap #' + tapCount + ' camH=' + result.camH.toFixed(2) + ' dir=' + result.dirStr)
-    hangPainting(result)
+    const r = getPlacement()
+    if (!r) return
+    hangPainting(r)
   }
 
   const ts = document.getElementById('tap-surface')
@@ -255,7 +282,7 @@
     document.getElementById('hud').style.display      = 'block'
     document.getElementById('actions').style.display  = 'none'
     document.getElementById('info-bar').style.display = 'none'
-    document.getElementById('hud-text').textContent   = 'Stand near a wall and tap to place'
+    document.getElementById('hud-text').textContent   = 'Point phone at wall and tap'
     log('Reset')
   })
 
