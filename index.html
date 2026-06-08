@@ -22,6 +22,7 @@
       font-size:16px; font-weight:500; cursor:pointer;
     }
 
+    /* HUD pill - shown while hunting for wall, hidden after place */
     #hud {
       position:fixed; bottom:44px; left:0; right:0; z-index:100;
       text-align:center; pointer-events:none; display:none;
@@ -32,6 +33,7 @@
       padding:11px 22px; color:#fff; font-size:14px;
     }
 
+    /* Action buttons - shown only AFTER placement, HUD hidden */
     #actions {
       position:fixed; bottom:44px; left:0; right:0; z-index:100;
       text-align:center; display:none;
@@ -52,31 +54,29 @@
       padding:8px 18px; color:#fff; font-size:13px;
     }
 
-    /* reticle - crosshair shown at placement point */
-    #reticle {
-      position:fixed; z-index:90;
-      width:48px; height:48px;
-      transform:translate(-50%,-50%);
-      pointer-events:none; display:none;
-    }
-    #reticle::before, #reticle::after {
-      content:''; position:absolute; background:#fff; opacity:0.8;
-      top:50%; left:50%;
-    }
-    #reticle::before { width:2px; height:28px; transform:translate(-50%,-50%); }
-    #reticle::after  { width:28px; height:2px; transform:translate(-50%,-50%); }
-
     /* debug */
     #debug {
       position:fixed; top:60px; left:10px; right:10px; z-index:300;
-      font-size:12px; color:#0f0; pointer-events:none;
-      font-family:monospace; text-shadow:0 0 4px #000;
+      font-size:11px; color:#0f0; pointer-events:none;
+      font-family:monospace; text-shadow:0 0 3px #000;
+      white-space:pre-wrap; line-height:1.5;
     }
 
-    /* full-screen tap catcher */
-    #tap-surface {
-      position:fixed; inset:0; z-index:50; display:none;
+    #tap-surface { position:fixed; inset:0; z-index:50; display:none; }
+
+    /* crosshair */
+    #reticle {
+      position:fixed; left:50%; top:50%;
+      transform:translate(-50%,-50%);
+      width:44px; height:44px;
+      pointer-events:none; display:none;
     }
+    #reticle::before, #reticle::after {
+      content:''; position:absolute; background:rgba(255,255,255,0.85);
+      top:50%; left:50%;
+    }
+    #reticle::before { width:2px; height:26px; transform:translate(-50%,-50%); }
+    #reticle::after  { width:26px; height:2px; transform:translate(-50%,-50%); }
 
     a-scene { position:fixed; inset:0; }
   </style>
@@ -91,11 +91,11 @@
   <div id="overlay">
     <div class="icon">&#128444;</div>
     <h1>View in your room</h1>
-    <p>Walk up close to a wall. Hold your phone up, pointing toward the wall. Then tap anywhere to place the painting.</p>
+    <p>Stand 1-2 metres from a wall. Point your phone at the wall and tap to place the painting.</p>
     <button id="start-btn">Start AR</button>
   </div>
 
-  <div id="hud"><span id="hud-text">Walk toward a wall and tap to place</span></div>
+  <div id="hud"><span id="hud-text">Stand near a wall and tap to place</span></div>
   <div id="actions">
     <button id="btn-move">Move it</button>
     <button id="btn-info">Size info</button>
@@ -107,7 +107,7 @@
 
   <a-scene
     xrconfig
-    xrweb="disableWorldTracking: false; allowedDevices: any; scale: absolute"
+    xrweb="disableWorldTracking: false; allowedDevices: any"
     xrextras-loading
     xrextras-runtime-error
     renderer="colorManagement: true; physicallyCorrectLights: true; antialias: true"
@@ -115,203 +115,185 @@
     device-orientation-permission-ui="enabled: false"
   >
     <a-assets>
-      <img id="painting-tex" crossorigin="anonymous"/>
+      <!-- CORS-safe test image from picsum (replace with real painting URL) -->
+      <img id="painting-tex" crossorigin="anonymous"
+           src="https://picsum.photos/seed/painting/800/1000"/>
     </a-assets>
 
     <a-camera id="camera" position="0 1.4 0"></a-camera>
 
     <a-entity id="painting-root" visible="false">
-      <a-plane id="painting-plane" width="1" height="1"
+      <!-- Canvas -->
+      <a-plane id="painting-plane" width="0.77" height="1.0"
         material="src:#painting-tex; shader:standard; roughness:0.88; metalness:0.02; side:front"
-        position="0 0 0"></a-plane>
-      <a-plane id="painting-frame" width="1.06" height="1.06"
+        position="0 0 0.001"></a-plane>
+      <!-- Frame -->
+      <a-plane id="painting-frame" width="0.83" height="1.06"
         material="color:#1c1c1c; roughness:0.85; metalness:0.15"
-        position="0 0 -0.004"></a-plane>
-      <a-plane id="wall-shadow" width="1.22" height="1.22"
-        material="color:#000; opacity:0.15; transparent:true; side:front"
-        position="0 0 -0.008"></a-plane>
+        position="0 0 0"></a-plane>
+      <!-- Wall shadow -->
+      <a-plane id="wall-shadow" width="0.97" height="1.22"
+        material="color:#000; opacity:0.13; transparent:true; side:front"
+        position="0 0 -0.005"></a-plane>
     </a-entity>
 
-    <a-light type="ambient"     id="ambient-light" intensity="0.65"></a-light>
+    <a-light type="ambient"     id="ambient-light" intensity="0.7"></a-light>
     <a-light type="directional" id="dir-light"     intensity="0.8" position="1 3 1"></a-light>
   </a-scene>
 
 <script>
-  // ── Params ──────────────────────────────────────────────────────────────
+  // ── Params ────────────────────────────────────────────────────────────────
   const p      = new URLSearchParams(location.search)
-  const imgUrl = p.get('img') || 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/ec/Mona_Lisa%2C_by_Leonardo_da_Vinci%2C_from_C2RMF_retouched.jpg/402px-Mona_Lisa%2C_by_Leonardo_da_Vinci%2C_from_C2RMF_retouched.jpg'
   const wCm    = parseFloat(p.get('w'))     || 77
   const hCm    = parseFloat(p.get('h'))     || 100
   const title  = p.get('title') || 'Painting'
-  const wM = wCm / 100
-  const hM = hCm / 100
+  const wM     = wCm / 100
+  const hM     = hCm / 100
 
-  // ── Debug ────────────────────────────────────────────────────────────────
-  const dbg = document.getElementById('debug')
-  const log = (msg) => { dbg.textContent = msg; console.log('[AR]', msg) }
+  // img param overrides the default - must be a CORS-enabled URL
+  const imgParam = p.get('img')
+  if (imgParam) {
+    document.getElementById('painting-tex').src = imgParam
+  }
 
-  // ── State ────────────────────────────────────────────────────────────────
+  // ── Scale painting planes to real dimensions ──────────────────────────────
+  // Done here so URL params always override HTML defaults
+  document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('info-text').textContent = title + '  ·  ' + wCm + ' x ' + hCm + ' cm'
+    document.getElementById('painting-plane').setAttribute('width',  wM)
+    document.getElementById('painting-plane').setAttribute('height', hM)
+    document.getElementById('painting-frame').setAttribute('width',  wM + 0.06)
+    document.getElementById('painting-frame').setAttribute('height', hM + 0.06)
+    document.getElementById('wall-shadow').setAttribute('width',     wM + 0.20)
+    document.getElementById('wall-shadow').setAttribute('height',    hM + 0.22)
+  })
+
+  // ── Debug ─────────────────────────────────────────────────────────────────
+  const dbg  = document.getElementById('debug')
+  const logs = []
+  function log(msg) {
+    logs.unshift(msg)
+    if (logs.length > 5) logs.pop()
+    dbg.textContent = logs.join('\n')
+    console.log('[AR]', msg)
+  }
+
+  // ── State ─────────────────────────────────────────────────────────────────
   let arStarted  = false
   let sceneReady = false
+  let placed     = false
   let tapCount   = 0
 
-  // ── Init dimensions ──────────────────────────────────────────────────────
-  document.addEventListener('DOMContentLoaded', () => {
-    document.getElementById('painting-tex').src = imgUrl
-    document.getElementById('info-text').textContent = title + '  ·  ' + wCm + ' x ' + hCm + ' cm'
-    const plane  = document.getElementById('painting-plane')
-    const frame  = document.getElementById('painting-frame')
-    const shadow = document.getElementById('wall-shadow')
-    plane.setAttribute('width', wM);       plane.setAttribute('height', hM)
-    frame.setAttribute('width', wM+0.06);  frame.setAttribute('height', hM+0.06)
-    shadow.setAttribute('width', wM+0.22); shadow.setAttribute('height', hM+0.22)
-  })
-
-  // ── Engine + scene ready events ──────────────────────────────────────────
+  // ── Engine + scene events ─────────────────────────────────────────────────
   window.addEventListener('xrloaded', () => log('XR engine ready'))
-
   document.querySelector('a-scene').addEventListener('loaded', () => {
     sceneReady = true
-    log('Scene ready - tap anywhere to place')
+    log('Scene ready - tap to place')
   })
 
-  // ── Start button ─────────────────────────────────────────────────────────
+  // ── Start ─────────────────────────────────────────────────────────────────
   document.getElementById('start-btn').addEventListener('click', () => {
     document.getElementById('overlay').style.display     = 'none'
     document.getElementById('hud').style.display         = 'block'
     document.getElementById('tap-surface').style.display = 'block'
     document.getElementById('reticle').style.display     = 'block'
     arStarted = true
-    log('AR started - walk up to wall and tap')
+    log('AR started')
   })
 
-  // ── PLACEMENT STRATEGY ───────────────────────────────────────────────────
-  // Rather than relying on raycasting with camera direction (unreliable on
-  // iOS before SLAM fully warms up), we use a simpler forward-projection:
-  //
-  //   1. Get camera world position (x, y, z)
-  //   2. Get camera horizontal facing direction (yaw only - ignores phone tilt)
-  //   3. Project 1.5m forward along that horizontal direction
-  //   4. Place painting there at eye height, facing back toward the camera
-  //
-  // This means: stand ~1-2m from wall, point phone AT the wall, tap.
-  // The painting appears on the wall in front of you at eye height.
-  // No floor detection needed. Works regardless of phone tilt.
+  // ── Placement ─────────────────────────────────────────────────────────────
+  // Strategy: yaw-only forward projection
+  //   - extract horizontal facing direction from camera quaternion
+  //   - project DIST metres ahead
+  //   - hang painting at camera height, facing camera
+  //   - scale is set in metres on the mesh, not via Three.js scale,
+  //     so it stays fixed regardless of camera distance (absolute scale)
 
-  function getPlacementPoint() {
+  const DIST = 1.6  // metres in front of camera to place painting
+
+  function getPlacement() {
     const camEl = document.getElementById('camera')
     if (!camEl || !camEl.object3D) return null
 
     const cam = camEl.object3D
-
-    // Camera world position
     const pos = new THREE.Vector3()
     cam.getWorldPosition(pos)
 
-    // Camera world quaternion -> extract yaw (Y rotation only, ignore pitch/roll)
-    const quat = new THREE.Quaternion()
+    const quat  = new THREE.Quaternion()
     cam.getWorldQuaternion(quat)
 
-    // Convert quaternion to euler, extract Y (yaw) only
-    const euler = new THREE.Euler().setFromQuaternion(quat, 'YXZ')
-    const yaw   = euler.y
+    // Yaw only - ignore pitch and roll so tilt doesn't affect placement
+    const euler  = new THREE.Euler().setFromQuaternion(quat, 'YXZ')
+    const yaw    = euler.y
 
-    // Forward vector using yaw only (horizontal, ignores phone tilt)
-    const forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw)).negate()
+    // Forward = -Z rotated by yaw
+    const fwd = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw))
 
-    // Use actual camera height if sane, otherwise fallback
-    const camHeight = (pos.y > 0.3 && pos.y < 3.0) ? pos.y : 1.4
+    const camH = (pos.y > 0.2 && pos.y < 3.5) ? pos.y : 1.4
 
-    // Place 1.5m ahead horizontally
-    const DIST = 1.5
-    const wallPoint = new THREE.Vector3(
-      pos.x + forward.x * DIST,
-      camHeight,           // same height as camera = eye level
-      pos.z + forward.z * DIST
+    const pt = new THREE.Vector3(
+      pos.x + fwd.x * DIST,
+      camH,
+      pos.z + fwd.z * DIST
     )
 
-    // Painting faces back toward camera (wall normal = toward camera)
-    const normal = forward.clone().negate()
+    // Painting faces BACK toward camera = opposite of forward
+    // yRot is the Y rotation so the painting normal faces the camera
+    const yRot = (yaw * 180 / Math.PI) + 180
 
-    return { wallPoint, normal, camHeight, yaw, forward }
+    return { pt, yRot, camH, yaw: yaw * 180 / Math.PI }
+  }
+
+  function hangPainting(result) {
+    const { pt, yRot } = result
+    const root = document.getElementById('painting-root')
+    root.setAttribute('position', pt.x.toFixed(3) + ' ' + pt.y.toFixed(3) + ' ' + pt.z.toFixed(3))
+    root.setAttribute('rotation', '0 ' + yRot.toFixed(1) + ' 0')
+    root.setAttribute('visible', 'true')
+
+    placed = true
+
+    // Hide HUD pill, show action buttons (no overlap)
+    document.getElementById('hud').style.display      = 'none'
+    document.getElementById('actions').style.display  = 'block'
+    document.getElementById('info-bar').style.display = 'block'
+
+    log('Placed at ' + pt.x.toFixed(2) + ',' + pt.y.toFixed(2) + ',' + pt.z.toFixed(2) + ' rot=' + yRot.toFixed(0))
   }
 
   // ── Tap handler ───────────────────────────────────────────────────────────
-  function handleTap(clientX, clientY) {
+  function handleTap(x, y) {
     tapCount++
-    log('Tap #' + tapCount + ' | arStarted=' + arStarted + ' sceneReady=' + sceneReady)
-
-    if (!arStarted) { log('Not started yet'); return }
-
-    // Allow tapping even before sceneReady - just use fallback placement
-    const result = getPlacementPoint()
-    if (!result) {
-      log('Camera object not ready yet - try again in a moment')
-      return
-    }
-
-    const { wallPoint, normal, camHeight, yaw } = result
-    log('Placing | camH=' + camHeight.toFixed(2) + ' yaw=' + (yaw * 180/Math.PI).toFixed(0) + 'deg | pt=' + wallPoint.x.toFixed(2) + ',' + wallPoint.z.toFixed(2))
-
-    hangPainting(wallPoint, normal)
-  }
-
-  // ── Wire up tap surface ───────────────────────────────────────────────────
-  const tapSurface = document.getElementById('tap-surface')
-
-  tapSurface.addEventListener('touchend', (e) => {
-    e.preventDefault()
-    const t = e.changedTouches[0]
-    handleTap(t.clientX, t.clientY)
-  }, { passive: false })
-
-  tapSurface.addEventListener('click', (e) => {
-    handleTap(e.clientX, e.clientY)
-  })
-
-  // ── Move reticle with device orientation (visual guide) ──────────────────
-  // Shows a crosshair at screen centre to indicate placement point
-  const reticle = document.getElementById('reticle')
-  setInterval(() => {
     if (!arStarted) return
-    // Keep reticle at screen centre
-    reticle.style.left = (window.innerWidth  / 2) + 'px'
-    reticle.style.top  = (window.innerHeight / 2) + 'px'
-  }, 100)
 
-  // ── Place painting ────────────────────────────────────────────────────────
-  function hangPainting(pt, normal) {
-    const root = document.getElementById('painting-root')
+    const result = getPlacement()
+    if (!result) { log('Camera not ready, tap ' + tapCount + ' - try again'); return }
 
-    const px = pt.x + normal.x * 0.05   // small offset so it's in front of wall surface
-    const py = pt.y
-    const pz = pt.z + normal.z * 0.05
-
-    // Rotation: painting faces normal direction
-    const yRot = Math.atan2(normal.x, normal.z) * (180 / Math.PI)
-
-    root.setAttribute('position', px + ' ' + py + ' ' + pz)
-    root.setAttribute('rotation', '0 ' + yRot + ' 0')
-    root.setAttribute('visible', 'true')
-
-    log('Placed at ' + px.toFixed(2) + ',' + py.toFixed(2) + ',' + pz.toFixed(2) + ' rot=' + yRot.toFixed(0) + 'deg')
-
-    document.getElementById('hud-text').textContent   = 'Tap anywhere to reposition'
-    document.getElementById('actions').style.display  = 'block'
-    document.getElementById('info-bar').style.display = 'block'
+    log('Tap #' + tapCount + ' camH=' + result.camH.toFixed(2) + ' yaw=' + result.yaw.toFixed(0) + 'deg')
+    hangPainting(result)
   }
+
+  const ts = document.getElementById('tap-surface')
+  ts.addEventListener('touchend', (e) => {
+    e.preventDefault()
+    handleTap(e.changedTouches[0].clientX, e.changedTouches[0].clientY)
+  }, { passive: false })
+  ts.addEventListener('click', (e) => handleTap(e.clientX, e.clientY))
 
   // ── Move button ───────────────────────────────────────────────────────────
   document.getElementById('btn-move').addEventListener('click', (e) => {
     e.stopPropagation()
     document.getElementById('painting-root').setAttribute('visible', 'false')
+    // Show HUD again, hide actions
+    document.getElementById('hud').style.display      = 'block'
     document.getElementById('actions').style.display  = 'none'
     document.getElementById('info-bar').style.display = 'none'
-    document.getElementById('hud-text').textContent   = 'Walk up to a wall and tap'
+    document.getElementById('hud-text').textContent   = 'Stand near a wall and tap to place'
+    placed = false
     log('Reset - tap to place again')
   })
 
-  // ── Size info ─────────────────────────────────────────────────────────────
+  // ── Size info toggle ──────────────────────────────────────────────────────
   document.getElementById('btn-info').addEventListener('click', (e) => {
     e.stopPropagation()
     const bar = document.getElementById('info-bar')
