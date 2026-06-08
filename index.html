@@ -8,8 +8,12 @@
     * { margin:0; padding:0; box-sizing:border-box; }
     html, body { width:100%; height:100%; overflow:hidden; background:#000; font-family:-apple-system,sans-serif; }
 
-    /* The XR8 camera pipeline draws into this canvas */
-    #camerafeed { position:fixed; inset:0; width:100%; height:100%; }
+    /* Canvas MUST fill the full screen - XR8 draws into this */
+    #camerafeed {
+      position:fixed; top:0; left:0;
+      width:100vw; height:100vh;
+      display:block;
+    }
 
     #overlay {
       position:fixed; inset:0; z-index:999;
@@ -34,15 +38,9 @@
     #info-bar { position:fixed; top:18px; left:0; right:0; z-index:100; text-align:center; display:none; pointer-events:none; }
     #info-bar span { display:inline-block; background:rgba(0,0,0,0.65); border:1px solid rgba(255,255,255,0.2); border-radius:100px; padding:8px 18px; color:#fff; font-size:13px; }
 
-    #debug {
-      position:fixed; top:60px; left:10px; right:10px; z-index:200;
-      font-size:11px; color:#0f0; pointer-events:none;
-      font-family:monospace; text-shadow:0 0 3px #000;
-      white-space:pre-wrap; line-height:1.6;
-    }
+    #debug { position:fixed; top:60px; left:10px; right:10px; z-index:200; font-size:11px; color:#0f0; pointer-events:none; font-family:monospace; text-shadow:0 0 3px #000; white-space:pre-wrap; line-height:1.6; }
     #version { position:fixed; top:18px; right:14px; z-index:200; font-size:11px; color:rgba(255,255,255,0.5); font-family:monospace; pointer-events:none; }
 
-    /* Full-screen tap catcher - shown after overlay dismissed */
     #tap-surface { position:fixed; inset:0; z-index:50; display:none; touch-action:manipulation; }
 
     #reticle { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); width:44px; height:44px; pointer-events:none; display:none; z-index:60; }
@@ -51,17 +49,15 @@
     #reticle::after  { width:26px; height:2px; transform:translate(-50%,-50%); }
   </style>
 
-  <!-- Three.js r128 - the version XR8 binary is built against -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <!-- XR8 engine binary - SLAM, world tracking, lighting estimation -->
   <script src="https://cdn.jsdelivr.net/npm/@8thwall/engine-binary@1/dist/xr.js"
           async crossorigin="anonymous" data-preload-chunks="slam"></script>
 </head>
 <body>
 
   <canvas id="camerafeed"></canvas>
-  <div id="version">v13</div>
-  <div id="debug">v13 loading...</div>
+  <div id="version">v14</div>
+  <div id="debug">v14 loading...</div>
   <div id="reticle"></div>
   <div id="tap-surface" ontouchend="handleTap(event)" onclick="handleTap(event)"></div>
 
@@ -80,41 +76,37 @@
   <div id="info-bar"><span id="info-text"></span></div>
 
 <script>
-  // ── Config ─────────────────────────────────────────────────────────────────
-  const VERSION = 'v13'
-  const p       = new URLSearchParams(location.search)
-  const wCm     = parseFloat(p.get('w'))  || 77
-  const hCm     = parseFloat(p.get('h'))  || 100
-  const title   = p.get('title')          || 'Painting'
-  const imgSrc  = p.get('img')            || '/test-painting.png'
-  const wM      = wCm / 100
-  const hM      = hCm / 100
-  const PLACE_DIST = 1.6   // metres in front of camera
+  const VERSION    = 'v14'
+  const p          = new URLSearchParams(location.search)
+  const wCm        = parseFloat(p.get('w'))  || 77
+  const hCm        = parseFloat(p.get('h'))  || 100
+  const title      = p.get('title')          || 'Painting'
+  const imgSrc     = p.get('img')            || '/test-painting.png'
+  const wM         = wCm / 100
+  const hM         = hCm / 100
+  const PLACE_DIST = 1.6
 
   document.getElementById('info-text').textContent = title + '  ·  ' + wCm + ' x ' + hCm + ' cm'
 
-  // ── Debug ──────────────────────────────────────────────────────────────────
-  const dbg = document.getElementById('debug')
   const logs = []
   function log(msg) {
     logs.unshift(VERSION + ' ' + msg)
     if (logs.length > 8) logs.pop()
-    dbg.textContent = logs.join('\n')
+    document.getElementById('debug').textContent = logs.join('\n')
     console.log('[AR]', msg)
   }
 
-  // ── State ──────────────────────────────────────────────────────────────────
   let arStarted     = false
   let tapCount      = 0
   let paintingGroup = null
   let threeCamera   = null
   let threeScene    = null
   let threeRenderer = null
+  let canvasMat     = null
 
-  // ── Start AR ───────────────────────────────────────────────────────────────
   function startAR(e) {
     if (e) { e.preventDefault(); e.stopPropagation() }
-    log('Start AR tapped')
+    log('Start AR')
     document.getElementById('overlay').style.display     = 'none'
     document.getElementById('hud').style.display         = 'block'
     document.getElementById('tap-surface').style.display = 'block'
@@ -122,161 +114,134 @@
     arStarted = true
   }
 
-  // ── XR8 Camera Pipeline Module ─────────────────────────────────────────────
-  // This is the correct 2026 way to use XR8 with Three.js directly.
-  // XR8 calls these lifecycle hooks each frame.
+  // ── XR8 pipeline ──────────────────────────────────────────────────────────
   const galleryArModule = {
     name: 'gallery-ar',
 
     onStart: ({canvas, GLctx}) => {
-      log('XR8 pipeline started')
+      log('Pipeline started - canvas ' + canvas.width + 'x' + canvas.height)
 
-      // Set up Three.js renderer using XR8's GL context
-      threeRenderer = new THREE.WebGLRenderer({
-        canvas,
-        context: GLctx,
-        alpha: false,
-        antialias: true,
-      })
-      threeRenderer.autoClear = false
-      threeRenderer.setSize(canvas.width, canvas.height)
+      // Renderer using XR8's GL context
+      threeRenderer = new THREE.WebGLRenderer({ canvas, context: GLctx, alpha: false, antialias: true })
+      threeRenderer.autoClear    = false
       threeRenderer.outputEncoding = THREE.sRGBEncoding
       threeRenderer.physicallyCorrectLights = true
+      // Size handled by onCanvasSizeChange
 
-      // Scene
-      threeScene = new THREE.Scene()
-
-      // Camera - perspective, matched to device FOV by XR8
-      threeCamera = new THREE.PerspectiveCamera(
-        60,
-        canvas.width / canvas.height,
-        0.01, 1000
-      )
+      threeScene  = new THREE.Scene()
+      threeCamera = new THREE.PerspectiveCamera(60, canvas.width / canvas.height, 0.01, 1000)
       threeCamera.position.set(0, 1.4, 0)
       threeScene.add(threeCamera)
 
-      // Lighting
-      const ambient = new THREE.AmbientLight(0xffffff, 0.7)
-      threeScene.add(ambient)
-      const dirLight = new THREE.DirectionalLight(0xffffff, 0.9)
-      dirLight.position.set(1, 3, 1)
-      threeScene.add(dirLight)
+      // Lights
+      threeScene.add(new THREE.AmbientLight(0xffffff, 0.7))
+      const dir = new THREE.DirectionalLight(0xffffff, 0.9)
+      dir.position.set(1, 3, 1)
+      threeScene.add(dir)
 
-      // Build painting group
+      // Painting group
       paintingGroup = new THREE.Group()
       paintingGroup.visible = false
       threeScene.add(paintingGroup)
 
-      // Canvas plane - gold colour initially
-      const canvasMat = new THREE.MeshStandardMaterial({
-        color: 0xd4a84b,
-        roughness: 0.88,
-        metalness: 0.02,
-        side: THREE.FrontSide,
-      })
-      const canvasMesh = new THREE.Mesh(
-        new THREE.PlaneGeometry(wM, hM),
-        canvasMat
-      )
-      canvasMesh.position.z = 0.003
-      paintingGroup.add(canvasMesh)
+      // Canvas plane
+      canvasMat = new THREE.MeshStandardMaterial({ color: 0xd4a84b, roughness: 0.88, metalness: 0.02 })
+      paintingGroup.add(new THREE.Mesh(new THREE.PlaneGeometry(wM, hM), canvasMat))
 
       // Frame
-      const frameMesh = new THREE.Mesh(
-        new THREE.PlaneGeometry(wM + 0.06, hM + 0.06),
-        new THREE.MeshStandardMaterial({ color: 0x1c1c1c, roughness: 0.9 })
-      )
+      const frameMat = new THREE.MeshStandardMaterial({ color: 0x1c1c1c, roughness: 0.9 })
+      const frameMesh = new THREE.Mesh(new THREE.PlaneGeometry(wM + 0.06, hM + 0.06), frameMat)
+      frameMesh.position.z = -0.002
       paintingGroup.add(frameMesh)
 
-      // Wall shadow
-      const shadowMesh = new THREE.Mesh(
-        new THREE.PlaneGeometry(wM + 0.22, hM + 0.24),
-        new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.12 })
-      )
+      // Shadow
+      const shadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.12 })
+      const shadowMesh = new THREE.Mesh(new THREE.PlaneGeometry(wM + 0.22, hM + 0.24), shadowMat)
       shadowMesh.position.z = -0.007
       paintingGroup.add(shadowMesh)
 
-      log('Three.js scene built - loading texture')
+      log('Scene built - loading texture')
 
       // Load texture
       const loader = new THREE.TextureLoader()
       loader.crossOrigin = 'anonymous'
-      loader.load(
-        imgSrc,
+      loader.load(imgSrc,
         (tex) => {
           tex.encoding = THREE.sRGBEncoding
-          canvasMat.map   = tex
+          canvasMat.map = tex
           canvasMat.color.setHex(0xffffff)
           canvasMat.needsUpdate = true
-          log('Texture loaded OK')
+          log('Texture OK')
         },
         undefined,
-        () => log('Texture failed - gold showing')
+        (err) => log('Texture failed: ' + imgSrc)
       )
     },
 
     onUpdate: ({processCpuResult}) => {
-      // Sync Three.js camera to XR8 SLAM camera pose each frame
-      const realitySource = processCpuResult && processCpuResult.reality
-      if (!realitySource || !threeCamera) return
-
-      const {rotation, position, intrinsics} = realitySource
-      if (!rotation || !position) return
-
-      // Update camera from SLAM output
-      threeCamera.quaternion.set(rotation.x, rotation.y, rotation.z, rotation.w)
-      threeCamera.position.set(position.x, position.y, position.z)
-
+      const r = processCpuResult && processCpuResult.reality
+      if (!r || !threeCamera) return
+      const {rotation, position, intrinsics} = r
+      if (rotation) threeCamera.quaternion.set(rotation.x, rotation.y, rotation.z, rotation.w)
+      if (position) threeCamera.position.set(position.x, position.y, position.z)
       if (intrinsics) {
-        // Update projection matrix from device intrinsics
-        for (let i = 0; i < 16; i++) {
-          threeCamera.projectionMatrix.elements[i] = intrinsics[i]
-        }
+        for (let i = 0; i < 16; i++) threeCamera.projectionMatrix.elements[i] = intrinsics[i]
       }
     },
 
     onRender: () => {
-      if (!threeRenderer || !threeScene || !threeCamera) return
-      threeRenderer.clearDepth()
-      threeRenderer.render(threeScene, threeCamera)
+      if (threeRenderer && threeScene && threeCamera) {
+        threeRenderer.clearDepth()
+        threeRenderer.render(threeScene, threeCamera)
+      }
     },
 
     onCanvasSizeChange: ({canvasWidth, canvasHeight}) => {
-      if (!threeRenderer) return
-      threeRenderer.setSize(canvasWidth, canvasHeight)
-      if (threeCamera) threeCamera.aspect = canvasWidth / canvasHeight
+      log('Canvas resize: ' + canvasWidth + 'x' + canvasHeight)
+      if (threeRenderer) threeRenderer.setSize(canvasWidth, canvasHeight, false)
+      if (threeCamera)   threeCamera.aspect = canvasWidth / canvasHeight
     },
 
-    onException: (e) => log('XR8 error: ' + e),
+    onException: (e) => log('XR8 error: ' + String(e).slice(0, 60)),
   }
 
-  // ── XR8 init ───────────────────────────────────────────────────────────────
   const onxrloaded = () => {
-    log('XR8 loaded - starting pipeline')
+    log('XR8 loaded')
     XR8.addCameraPipelineModules([
-      XR8.GlTextureRenderer.pipelineModule(),   // draws camera feed
-      XR8.XrController.pipelineModule(),         // SLAM world tracking
-      galleryArModule,                           // our Three.js scene
+      XR8.GlTextureRenderer.pipelineModule(),
+      XR8.XrController.pipelineModule(),
+      galleryArModule,
     ])
-
     const canvas = document.getElementById('camerafeed')
+    // Set canvas to full device pixel size before XR8.run
+    canvas.width  = window.innerWidth  * window.devicePixelRatio
+    canvas.height = window.innerHeight * window.devicePixelRatio
+    canvas.style.width  = window.innerWidth  + 'px'
+    canvas.style.height = window.innerHeight + 'px'
+    log('Canvas set to ' + canvas.width + 'x' + canvas.height)
     XR8.run({ canvas, allowedDevices: XR8.XrConfig.device().ANY })
-    log('XR8.run called')
   }
 
-  // Wait for XR8 script to load
   window.XR8 ? onxrloaded() : window.addEventListener('xrloaded', onxrloaded)
 
-  // ── Tap to place ───────────────────────────────────────────────────────────
+  // Also handle window resize
+  window.addEventListener('resize', () => {
+    const canvas = document.getElementById('camerafeed')
+    canvas.width  = window.innerWidth  * window.devicePixelRatio
+    canvas.height = window.innerHeight * window.devicePixelRatio
+    canvas.style.width  = window.innerWidth  + 'px'
+    canvas.style.height = window.innerHeight + 'px'
+    if (threeRenderer) threeRenderer.setSize(canvas.width, canvas.height, false)
+    if (threeCamera)   threeCamera.aspect = window.innerWidth / window.innerHeight
+  })
+
+  // ── Tap ────────────────────────────────────────────────────────────────────
   function handleTap(e) {
     e.preventDefault(); e.stopPropagation()
     tapCount++
     log('Tap #' + tapCount)
-    if (!arStarted)      { log('Not started'); return }
-    if (!paintingGroup)  { log('Scene not ready'); return }
-    if (!threeCamera)    { log('Camera not ready'); return }
+    if (!arStarted || !paintingGroup || !threeCamera) return
 
-    // Get camera's world-space forward direction (horizontal only)
     const dir = new THREE.Vector3()
     threeCamera.getWorldDirection(dir)
     dir.y = 0
@@ -285,22 +250,14 @@
 
     const pos  = threeCamera.position
     const camH = (pos.y > 0.1 && pos.y < 4.0) ? pos.y : 1.4
-
-    const pt = new THREE.Vector3(
-      pos.x + dir.x * PLACE_DIST,
-      camH,
-      pos.z + dir.z * PLACE_DIST
-    )
-
-    // Face painting toward camera
+    const pt   = new THREE.Vector3(pos.x + dir.x * PLACE_DIST, camH, pos.z + dir.z * PLACE_DIST)
     const yRot = Math.atan2(-dir.x, -dir.z)
 
     paintingGroup.position.copy(pt)
     paintingGroup.rotation.set(0, yRot, 0)
     paintingGroup.visible = true
 
-    log('Placed! dir=' + dir.x.toFixed(2) + ',' + dir.z.toFixed(2))
-
+    log('Placed dir=' + dir.x.toFixed(2) + ',' + dir.z.toFixed(2))
     document.getElementById('hud').style.display      = 'none'
     document.getElementById('actions').style.display  = 'block'
     document.getElementById('info-bar').style.display = 'block'
