@@ -7,14 +7,7 @@
   <style>
     * { margin:0; padding:0; box-sizing:border-box; }
     html, body { width:100%; height:100%; overflow:hidden; background:#000; font-family:-apple-system,sans-serif; }
-
-    /* Canvas MUST fill the full screen - XR8 draws into this */
-    #camerafeed {
-      position:fixed; top:0; left:0;
-      width:100vw; height:100vh;
-      display:block;
-    }
-
+    #camerafeed { position:fixed; top:0; left:0; width:100vw; height:100vh; display:block; }
     #overlay {
       position:fixed; inset:0; z-index:999;
       display:flex; flex-direction:column; align-items:center; justify-content:center;
@@ -23,32 +16,21 @@
     #overlay .icon { font-size:52px; margin-bottom:18px; }
     #overlay h1   { font-size:22px; font-weight:500; margin-bottom:10px; }
     #overlay p    { font-size:14px; color:rgba(255,255,255,0.65); line-height:1.65; margin-bottom:32px; max-width:270px; }
-    #start-btn {
-      background:#fff; color:#000; border:none; padding:16px 40px;
-      border-radius:100px; font-size:17px; font-weight:600;
-      cursor:pointer; touch-action:manipulation;
-    }
-
+    #start-btn { background:#fff; color:#000; border:none; padding:16px 40px; border-radius:100px; font-size:17px; font-weight:600; cursor:pointer; touch-action:manipulation; }
     #hud { position:fixed; bottom:44px; left:0; right:0; z-index:100; text-align:center; pointer-events:none; display:none; }
     #hud-text { display:inline-block; background:rgba(0,0,0,0.65); border:1px solid rgba(255,255,255,0.2); border-radius:100px; padding:11px 22px; color:#fff; font-size:14px; }
-
     #actions { position:fixed; bottom:44px; left:0; right:0; z-index:100; text-align:center; display:none; }
     #actions button { background:rgba(0,0,0,0.65); border:1px solid rgba(255,255,255,0.25); border-radius:100px; padding:11px 22px; color:#fff; font-size:14px; cursor:pointer; margin:0 5px; touch-action:manipulation; }
-
     #info-bar { position:fixed; top:18px; left:0; right:0; z-index:100; text-align:center; display:none; pointer-events:none; }
     #info-bar span { display:inline-block; background:rgba(0,0,0,0.65); border:1px solid rgba(255,255,255,0.2); border-radius:100px; padding:8px 18px; color:#fff; font-size:13px; }
-
     #debug { position:fixed; top:60px; left:10px; right:10px; z-index:200; font-size:11px; color:#0f0; pointer-events:none; font-family:monospace; text-shadow:0 0 3px #000; white-space:pre-wrap; line-height:1.6; }
     #version { position:fixed; top:18px; right:14px; z-index:200; font-size:11px; color:rgba(255,255,255,0.5); font-family:monospace; pointer-events:none; }
-
     #tap-surface { position:fixed; inset:0; z-index:50; display:none; touch-action:manipulation; }
-
     #reticle { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); width:44px; height:44px; pointer-events:none; display:none; z-index:60; }
     #reticle::before, #reticle::after { content:''; position:absolute; background:rgba(255,255,255,0.85); top:50%; left:50%; }
     #reticle::before { width:2px; height:26px; transform:translate(-50%,-50%); }
     #reticle::after  { width:26px; height:2px; transform:translate(-50%,-50%); }
   </style>
-
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@8thwall/engine-binary@1/dist/xr.js"
           async crossorigin="anonymous" data-preload-chunks="slam"></script>
@@ -56,8 +38,8 @@
 <body>
 
   <canvas id="camerafeed"></canvas>
-  <div id="version">v14</div>
-  <div id="debug">v14 loading...</div>
+  <div id="version">v15</div>
+  <div id="debug">v15 loading...</div>
   <div id="reticle"></div>
   <div id="tap-surface" ontouchend="handleTap(event)" onclick="handleTap(event)"></div>
 
@@ -76,15 +58,19 @@
   <div id="info-bar"><span id="info-text"></span></div>
 
 <script>
-  const VERSION    = 'v14'
+  const VERSION    = 'v15'
   const p          = new URLSearchParams(location.search)
   const wCm        = parseFloat(p.get('w'))  || 77
   const hCm        = parseFloat(p.get('h'))  || 100
-  const title      = p.get('title')          || 'Painting'
-  const imgSrc     = p.get('img')            || '/test-painting.png'
+  const title      = p.get('title')          || 'Van Gogh - Self Portrait'
+  const PLACE_DIST = 1.6
   const wM         = wCm / 100
   const hM         = hCm / 100
-  const PLACE_DIST = 1.6
+
+  // Default test image: Van Gogh Self Portrait (public domain, Wikimedia CORS-open)
+  // Swap this for any gallery painting URL via ?img=URL&w=WCM&h=HCM&title=NAME
+  const imgSrc = p.get('img') ||
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b2/Vincent_van_Gogh_-_Self-Portrait_-_Google_Art_Project.jpg/402px-Vincent_van_Gogh_-_Self-Portrait_-_Google_Art_Project.jpg'
 
   document.getElementById('info-text').textContent = title + '  ·  ' + wCm + ' x ' + hCm + ' cm'
 
@@ -96,13 +82,8 @@
     console.log('[AR]', msg)
   }
 
-  let arStarted     = false
-  let tapCount      = 0
-  let paintingGroup = null
-  let threeCamera   = null
-  let threeScene    = null
-  let threeRenderer = null
-  let canvasMat     = null
+  let arStarted = false, tapCount = 0
+  let paintingGroup = null, threeCamera = null, threeScene = null, threeRenderer = null
 
   function startAR(e) {
     if (e) { e.preventDefault(); e.stopPropagation() }
@@ -114,67 +95,75 @@
     arStarted = true
   }
 
-  // ── XR8 pipeline ──────────────────────────────────────────────────────────
   const galleryArModule = {
     name: 'gallery-ar',
 
     onStart: ({canvas, GLctx}) => {
-      log('Pipeline started - canvas ' + canvas.width + 'x' + canvas.height)
+      log('Pipeline started ' + canvas.width + 'x' + canvas.height)
 
-      // Renderer using XR8's GL context
       threeRenderer = new THREE.WebGLRenderer({ canvas, context: GLctx, alpha: false, antialias: true })
-      threeRenderer.autoClear    = false
-      threeRenderer.outputEncoding = THREE.sRGBEncoding
+      threeRenderer.autoClear            = false
+      threeRenderer.outputEncoding       = THREE.sRGBEncoding
       threeRenderer.physicallyCorrectLights = true
-      // Size handled by onCanvasSizeChange
 
       threeScene  = new THREE.Scene()
       threeCamera = new THREE.PerspectiveCamera(60, canvas.width / canvas.height, 0.01, 1000)
       threeCamera.position.set(0, 1.4, 0)
       threeScene.add(threeCamera)
 
-      // Lights
       threeScene.add(new THREE.AmbientLight(0xffffff, 0.7))
-      const dir = new THREE.DirectionalLight(0xffffff, 0.9)
-      dir.position.set(1, 3, 1)
-      threeScene.add(dir)
+      const dirLight = new THREE.DirectionalLight(0xffffff, 0.9)
+      dirLight.position.set(1, 3, 1)
+      threeScene.add(dirLight)
 
       // Painting group
       paintingGroup = new THREE.Group()
       paintingGroup.visible = false
       threeScene.add(paintingGroup)
 
-      // Canvas plane
-      canvasMat = new THREE.MeshStandardMaterial({ color: 0xd4a84b, roughness: 0.88, metalness: 0.02 })
-      paintingGroup.add(new THREE.Mesh(new THREE.PlaneGeometry(wM, hM), canvasMat))
+      // Canvas surface - no sRGBEncoding on material, let the renderer handle it
+      const canvasMat = new THREE.MeshStandardMaterial({
+        color: 0xd4a84b,   // gold until texture loads
+        roughness: 0.85,
+        metalness: 0.0,
+      })
+      const canvasMesh = new THREE.Mesh(new THREE.PlaneGeometry(wM, hM), canvasMat)
+      canvasMesh.position.z = 0.003
+      paintingGroup.add(canvasMesh)
 
       // Frame
-      const frameMat = new THREE.MeshStandardMaterial({ color: 0x1c1c1c, roughness: 0.9 })
-      const frameMesh = new THREE.Mesh(new THREE.PlaneGeometry(wM + 0.06, hM + 0.06), frameMat)
-      frameMesh.position.z = -0.002
+      const frameMesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(wM + 0.055, hM + 0.055),
+        new THREE.MeshStandardMaterial({ color: 0x2a1f0e, roughness: 0.95 })
+      )
+      frameMesh.position.z = 0.001
       paintingGroup.add(frameMesh)
 
-      // Shadow
-      const shadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.12 })
-      const shadowMesh = new THREE.Mesh(new THREE.PlaneGeometry(wM + 0.22, hM + 0.24), shadowMat)
-      shadowMesh.position.z = -0.007
+      // Soft wall shadow behind frame
+      const shadowMesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(wM + 0.22, hM + 0.24),
+        new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.14 })
+      )
+      shadowMesh.position.z = -0.008
       paintingGroup.add(shadowMesh)
 
-      log('Scene built - loading texture')
+      log('Scene built. Loading texture...')
 
-      // Load texture
+      // Load painting texture
       const loader = new THREE.TextureLoader()
       loader.crossOrigin = 'anonymous'
-      loader.load(imgSrc,
+      loader.load(
+        imgSrc,
         (tex) => {
-          tex.encoding = THREE.sRGBEncoding
-          canvasMat.map = tex
+          // Do NOT set tex.encoding - let Three.js r128 handle it naturally
+          // Setting sRGBEncoding was causing the green tint in v14
+          canvasMat.map   = tex
           canvasMat.color.setHex(0xffffff)
           canvasMat.needsUpdate = true
-          log('Texture OK')
+          log('Texture loaded OK!')
         },
         undefined,
-        (err) => log('Texture failed: ' + imgSrc)
+        () => log('Texture failed - showing gold')
       )
     },
 
@@ -197,12 +186,12 @@
     },
 
     onCanvasSizeChange: ({canvasWidth, canvasHeight}) => {
-      log('Canvas resize: ' + canvasWidth + 'x' + canvasHeight)
       if (threeRenderer) threeRenderer.setSize(canvasWidth, canvasHeight, false)
-      if (threeCamera)   threeCamera.aspect = canvasWidth / canvasHeight
+      if (threeCamera)   { threeCamera.aspect = canvasWidth / canvasHeight; threeCamera.updateProjectionMatrix() }
+      log('Resize: ' + canvasWidth + 'x' + canvasHeight)
     },
 
-    onException: (e) => log('XR8 error: ' + String(e).slice(0, 60)),
+    onException: (e) => log('XR8 err: ' + String(e).slice(0, 80)),
   }
 
   const onxrloaded = () => {
@@ -212,30 +201,18 @@
       XR8.XrController.pipelineModule(),
       galleryArModule,
     ])
-    const canvas = document.getElementById('camerafeed')
-    // Set canvas to full device pixel size before XR8.run
-    canvas.width  = window.innerWidth  * window.devicePixelRatio
-    canvas.height = window.innerHeight * window.devicePixelRatio
+    const canvas  = document.getElementById('camerafeed')
+    const dpr     = window.devicePixelRatio || 1
+    canvas.width  = Math.round(window.innerWidth  * dpr)
+    canvas.height = Math.round(window.innerHeight * dpr)
     canvas.style.width  = window.innerWidth  + 'px'
     canvas.style.height = window.innerHeight + 'px'
-    log('Canvas set to ' + canvas.width + 'x' + canvas.height)
+    log('Canvas: ' + canvas.width + 'x' + canvas.height + ' dpr=' + dpr)
     XR8.run({ canvas, allowedDevices: XR8.XrConfig.device().ANY })
   }
 
   window.XR8 ? onxrloaded() : window.addEventListener('xrloaded', onxrloaded)
 
-  // Also handle window resize
-  window.addEventListener('resize', () => {
-    const canvas = document.getElementById('camerafeed')
-    canvas.width  = window.innerWidth  * window.devicePixelRatio
-    canvas.height = window.innerHeight * window.devicePixelRatio
-    canvas.style.width  = window.innerWidth  + 'px'
-    canvas.style.height = window.innerHeight + 'px'
-    if (threeRenderer) threeRenderer.setSize(canvas.width, canvas.height, false)
-    if (threeCamera)   threeCamera.aspect = window.innerWidth / window.innerHeight
-  })
-
-  // ── Tap ────────────────────────────────────────────────────────────────────
   function handleTap(e) {
     e.preventDefault(); e.stopPropagation()
     tapCount++
@@ -257,7 +234,7 @@
     paintingGroup.rotation.set(0, yRot, 0)
     paintingGroup.visible = true
 
-    log('Placed dir=' + dir.x.toFixed(2) + ',' + dir.z.toFixed(2))
+    log('Placed! dir=' + dir.x.toFixed(2) + ',' + dir.z.toFixed(2) + ' h=' + camH.toFixed(2))
     document.getElementById('hud').style.display      = 'none'
     document.getElementById('actions').style.display  = 'block'
     document.getElementById('info-bar').style.display = 'block'
