@@ -38,8 +38,8 @@
 <body>
 
   <canvas id="camerafeed"></canvas>
-  <div id="version">v17</div>
-  <div id="debug">v17 loading...</div>
+  <div id="version">v18</div>
+  <div id="debug">v18 loading...</div>
   <div id="reticle"></div>
   <div id="tap-surface" ontouchend="handleTap(event)" onclick="handleTap(event)"></div>
 
@@ -58,7 +58,7 @@
   <div id="info-bar"><span id="info-text"></span></div>
 
 <script>
-  const VERSION    = 'v17'
+  const VERSION    = 'v18'
   const p          = new URLSearchParams(location.search)
   const wCm        = parseFloat(p.get('w'))  || 77
   const hCm        = parseFloat(p.get('h'))  || 100
@@ -111,21 +111,8 @@
       threeCamera.position.set(0, 1.4, 0)
       threeScene.add(threeCamera)
 
-      // Gallery lighting: warm 3000K tungsten spot from above-left (like a picture rail light)
-      // Keep ambient very low so the spot does the work
-      const ambientLight = new THREE.AmbientLight(0xffe8cc, 0.15)
-      threeScene.add(ambientLight)
-
-      // Primary gallery spot - attached to painting group so it always illuminates the piece
-      // Warm tungsten colour (3000K), positioned above and slightly left
-      const gallerySpot = new THREE.PointLight(0xffd580, 2.8, 4.0)
-      gallerySpot.position.set(-0.4, 0.9, 0.6)  // above-left, in front
-      paintingGroup.add(gallerySpot)  // moves with the painting
-
-      // Soft fill from below-right (bounce light off floor, common in galleries)
-      const fillLight = new THREE.PointLight(0xffe4b0, 0.5, 3.0)
-      fillLight.position.set(0.5, -0.6, 0.5)
-      paintingGroup.add(fillLight)
+      // Low ambient - the gallery spot does the real work
+      threeScene.add(new THREE.AmbientLight(0xffe8cc, 0.15))
 
       // Painting group
       paintingGroup = new THREE.Group()
@@ -157,6 +144,17 @@
       )
       shadowMesh.position.z = -0.008
       paintingGroup.add(shadowMesh)
+
+      // Gallery lighting attached to painting group so it travels with the piece
+      // Warm 3000K tungsten spot from above-left (picture rail / track light style)
+      const gallerySpot = new THREE.PointLight(0xffd580, 2.8, 4.0)
+      gallerySpot.position.set(-0.4, 0.9, 0.6)
+      paintingGroup.add(gallerySpot)
+
+      // Soft warm fill from below-right (bounce off gallery floor)
+      const fillLight = new THREE.PointLight(0xffe4b0, 0.5, 3.0)
+      fillLight.position.set(0.5, -0.6, 0.5)
+      paintingGroup.add(fillLight)
 
       log('Scene built. Loading texture...')
 
