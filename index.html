@@ -38,8 +38,8 @@
 <body>
 
   <canvas id="camerafeed"></canvas>
-  <div id="version">v19</div>
-  <div id="debug">v19 loading...</div>
+  <div id="version">v20</div>
+  <div id="debug">v20 loading...</div>
   <div id="reticle"></div>
   <div id="tap-surface" ontouchend="handleTap(event)" onclick="handleTap(event)"></div>
 
@@ -58,7 +58,7 @@
   <div id="info-bar"><span id="info-text"></span></div>
 
 <script>
-  const VERSION    = 'v19'
+  const VERSION    = 'v20'
   const p          = new URLSearchParams(location.search)
   const wCm        = parseFloat(p.get('w'))  || 77
   const hCm        = parseFloat(p.get('h'))  || 100
@@ -70,7 +70,7 @@
   // Default test image: Van Gogh Self Portrait (public domain, Wikimedia CORS-open)
   // Swap this for any gallery painting URL via ?img=URL&w=WCM&h=HCM&title=NAME
   const imgSrc = p.get('img') ||
-    '/painting.jpg'
+    'painting.jpg'
 
   document.getElementById('info-text').textContent = title + '  ·  ' + wCm + ' x ' + hCm + ' cm'
 
