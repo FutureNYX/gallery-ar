@@ -23,6 +23,13 @@
     #actions button { background:rgba(0,0,0,0.65); border:1px solid rgba(255,255,255,0.25); border-radius:100px; padding:11px 22px; color:#fff; font-size:14px; cursor:pointer; margin:0 5px; touch-action:manipulation; }
     #info-bar { position:fixed; top:18px; left:0; right:0; z-index:100; text-align:center; display:none; pointer-events:none; }
     #info-bar span { display:inline-block; background:rgba(0,0,0,0.65); border:1px solid rgba(255,255,255,0.2); border-radius:100px; padding:8px 18px; color:#fff; font-size:13px; }
+    #size-adjust { position:fixed; bottom:40px; left:0; right:0; z-index:100; text-align:center; display:none; }
+    #size-adjust .q { color:#fff; font-size:13px; margin-bottom:12px; text-shadow:0 1px 4px rgba(0,0,0,0.85); }
+    #size-adjust .row { display:inline-flex; align-items:center; gap:16px; background:rgba(0,0,0,0.65); border:1px solid rgba(255,255,255,0.25); border-radius:100px; padding:8px 16px; }
+    #size-adjust .step { width:42px; height:42px; border-radius:50%; border:1px solid rgba(255,255,255,0.4); background:rgba(255,255,255,0.08); color:#fff; font-size:24px; line-height:1; cursor:pointer; touch-action:manipulation; display:flex; align-items:center; justify-content:center; }
+    #size-adjust .step:disabled { opacity:0.3; }
+    #size-adjust .dim { color:#fff; font-size:16px; min-width:128px; font-variant-numeric:tabular-nums; }
+    #size-adjust .confirm { display:inline-block; margin-top:14px; background:#fff; color:#000; border:none; border-radius:100px; padding:12px 32px; font-size:15px; font-weight:600; cursor:pointer; touch-action:manipulation; }
     #debug { position:fixed; top:60px; left:10px; right:10px; z-index:200; font-size:11px; color:#0f0; pointer-events:none; font-family:monospace; text-shadow:0 0 3px #000; white-space:pre-wrap; line-height:1.6; }
     #version { position:fixed; top:18px; right:14px; z-index:200; font-size:11px; color:rgba(255,255,255,0.5); font-family:monospace; pointer-events:none; }
     #tap-surface { position:fixed; inset:0; z-index:50; display:none; touch-action:manipulation; }
@@ -38,8 +45,8 @@
 <body>
 
   <canvas id="camerafeed"></canvas>
-  <div id="version">v20</div>
-  <div id="debug">v20 loading...</div>
+  <div id="version">v21</div>
+  <div id="debug">v21 loading...</div>
   <div id="reticle"></div>
   <div id="tap-surface" ontouchend="handleTap(event)" onclick="handleTap(event)"></div>
 
@@ -51,14 +58,27 @@
   </div>
 
   <div id="hud"><span id="hud-text">Point phone at wall and tap</span></div>
+
+  <div id="size-adjust">
+    <div class="q">Does the size look right?</div>
+    <div class="row">
+      <button class="step" id="step-minus" ontouchend="stepSize(event,-1)" onclick="stepSize(event,-1)">&minus;</button>
+      <span class="dim" id="dim-text">77 &times; 100 cm</span>
+      <button class="step" id="step-plus" ontouchend="stepSize(event,1)" onclick="stepSize(event,1)">+</button>
+    </div>
+    <br/>
+    <button class="confirm" ontouchend="confirmSize(event)" onclick="confirmSize(event)">Looks right &check;</button>
+  </div>
+
   <div id="actions">
     <button ontouchend="resetPlacement(event)" onclick="resetPlacement(event)">Move it</button>
+    <button ontouchend="reopenAdjust(event)"   onclick="reopenAdjust(event)">Adjust size</button>
     <button ontouchend="toggleInfo(event)"     onclick="toggleInfo(event)">Size info</button>
   </div>
   <div id="info-bar"><span id="info-text"></span></div>
 
 <script>
-  const VERSION    = 'v20'
+  const VERSION    = 'v21'
   const p          = new URLSearchParams(location.search)
   const wCm        = parseFloat(p.get('w'))  || 77
   const hCm        = parseFloat(p.get('h'))  || 100
@@ -67,12 +87,14 @@
   const wM         = wCm / 100
   const hM         = hCm / 100
 
-  // Default test image: Van Gogh Self Portrait (public domain, Wikimedia CORS-open)
-  // Swap this for any gallery painting URL via ?img=URL&w=WCM&h=HCM&title=NAME
-  const imgSrc = p.get('img') ||
-    'painting.jpg'
+  // Default test image self-hosted in repo to avoid CORS.
+  // Swap for any gallery painting URL via ?img=URL&w=WCM&h=HCM&title=NAME
+  const imgSrc = p.get('img') || 'painting.jpg'
 
-  document.getElementById('info-text').textContent = title + '  ·  ' + wCm + ' x ' + hCm + ' cm'
+  // Size calibration: scale factor applied on top of the true real-world size.
+  // 1.0 = true size. Persists across repositioning so a confirmed size stays put.
+  let sizeScale = 1.0
+  const SCALE_MIN = 0.70, SCALE_MAX = 1.30, SCALE_STEP = 0.05
 
   const logs = []
   function log(msg) {
@@ -81,6 +103,24 @@
     document.getElementById('debug').textContent = logs.join('\n')
     console.log('[AR]', msg)
   }
+
+  function updateDimText() {
+    const w = Math.round(wCm * sizeScale)
+    const h = Math.round(hCm * sizeScale)
+    document.getElementById('dim-text').textContent  = w + ' × ' + h + ' cm'
+    document.getElementById('info-text').textContent = title + '  ·  ' + w + ' × ' + h + ' cm'
+    document.getElementById('step-minus').disabled = (sizeScale <= SCALE_MIN + 1e-6)
+    document.getElementById('step-plus').disabled  = (sizeScale >= SCALE_MAX - 1e-6)
+  }
+
+  function applyScale() {
+    // Scale only width/height; keep depth (z) at 1 so frame offsets and light
+    // depths stay correct. Lights are children so they track the piece.
+    if (paintingGroup) paintingGroup.scale.set(sizeScale, sizeScale, 1)
+    updateDimText()
+  }
+
+  updateDimText()
 
   let arStarted = false, tapCount = 0
   let paintingGroup = null, threeCamera = null, threeScene = null, threeRenderer = null
@@ -165,7 +205,6 @@
         imgSrc,
         (tex) => {
           // Do NOT set tex.encoding - let Three.js r128 handle it naturally
-          // Setting sRGBEncoding was causing the green tint in v14
           canvasMat.map   = tex
           canvasMat.color.setHex(0xffffff)
           canvasMat.needsUpdate = true
@@ -240,23 +279,49 @@
     const yRot = Math.atan2(-dir.x, -dir.z)
 
     paintingGroup.position.copy(pt)
-    paintingGroup.rotation.set(0, yRot, 0)
+    paintingGroup.rotation.set(0, yRot, 0)  // X and Z locked to 0 -> always perfectly vertical
+    applyScale()                            // re-apply any confirmed/adjusted size
     paintingGroup.visible = true
 
     log('Placed! dir=' + dir.x.toFixed(2) + ',' + dir.z.toFixed(2) + ' h=' + camH.toFixed(2))
-    document.getElementById('hud').style.display      = 'none'
-    document.getElementById('actions').style.display  = 'block'
-    document.getElementById('info-bar').style.display = 'block'
+
+    // Go straight into size confirmation after placing
+    document.getElementById('hud').style.display         = 'none'
+    document.getElementById('actions').style.display     = 'none'
+    document.getElementById('size-adjust').style.display = 'block'
+    document.getElementById('info-bar').style.display    = 'block'
+  }
+
+  function stepSize(e, dir) {
+    if (e) { e.preventDefault(); e.stopPropagation() }
+    sizeScale = Math.min(SCALE_MAX, Math.max(SCALE_MIN, sizeScale + dir * SCALE_STEP))
+    sizeScale = Math.round(sizeScale * 100) / 100
+    applyScale()
+    log('Size ' + Math.round(sizeScale * 100) + '%')
+  }
+
+  function confirmSize(e) {
+    if (e) { e.preventDefault(); e.stopPropagation() }
+    document.getElementById('size-adjust').style.display = 'none'
+    document.getElementById('actions').style.display     = 'block'
+    log('Size confirmed at ' + Math.round(sizeScale * 100) + '%')
+  }
+
+  function reopenAdjust(e) {
+    if (e) { e.preventDefault(); e.stopPropagation() }
+    document.getElementById('actions').style.display     = 'none'
+    document.getElementById('size-adjust').style.display = 'block'
   }
 
   function resetPlacement(e) {
     if (e) { e.preventDefault(); e.stopPropagation() }
     if (paintingGroup) paintingGroup.visible = false
-    document.getElementById('hud').style.display      = 'block'
-    document.getElementById('actions').style.display  = 'none'
-    document.getElementById('info-bar').style.display = 'none'
-    document.getElementById('hud-text').textContent   = 'Point phone at wall and tap'
-    log('Reset')
+    document.getElementById('hud').style.display         = 'block'
+    document.getElementById('actions').style.display     = 'none'
+    document.getElementById('size-adjust').style.display = 'none'
+    document.getElementById('info-bar').style.display    = 'none'
+    document.getElementById('hud-text').textContent      = 'Point phone at wall and tap'
+    log('Reset (size kept at ' + Math.round(sizeScale * 100) + '%)')
   }
 
   function toggleInfo(e) {
